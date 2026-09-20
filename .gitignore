@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+frontend/.next/
+frontend/node_modules/
+frontend/GLM-Free-API/*.log
+frontend/GLM-Free-API/*.sqlite
+frontend/GLM-Free-API/*.sqlite-*
+frontend/GLM-Free-API/zai-api
+frontend/GLM-Free-API/token-collector
+frontend/GLM-Free-API/.assets/
+backend/.assets/

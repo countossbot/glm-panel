@@ -1,0 +1,14 @@
+
+# ---- GLM bridge runtime artifacts (never commit) ----
+GLM-Free-API/zai-api
+GLM-Free-API/token-collector
+GLM-Free-API/tokens.sqlite*
+GLM-Free-API/admin-config.json
+GLM-Free-API/*.log
+GLM-Free-API/*.pid
+GLM-Free-API/refill-tmp/
+db/custom.db*
+*.pid
+GLM-Free-API/.assets/reports/
+GLM-Free-API/.assets/scripts/
+GLM-Free-API/aliyun.env
