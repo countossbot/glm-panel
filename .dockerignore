@@ -15,3 +15,6 @@ frontend/GLM-Free-API/.assets
 backend/.assets
 frontend/GLM-Free-API/admin-config.json
 frontend/GLM-Free-API/*.pid
+frontend/docs/
+frontend/bun.lock
+backend/

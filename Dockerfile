@@ -1,17 +1,25 @@
-FROM golang:1.27-bookworm AS go-builder
+# syntax=docker/dockerfile:1.7
+FROM --platform=$BUILDPLATFORM golang:1.27-bookworm AS go-builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY frontend/GLM-Free-API/go.mod frontend/GLM-Free-API/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 COPY frontend/GLM-Free-API/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/zai-api .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/token-collector ./cmd/token-collector
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/zai-api . \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/token-collector ./cmd/token-collector
 
 FROM node:22-bookworm AS web-builder
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund
 COPY frontend/ ./
-RUN npm run build
+RUN NEXT_TELEMETRY_DISABLED=1 npm run build
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
@@ -30,7 +38,7 @@ COPY --from=web-builder /app/.next/standalone ./frontend/.next/standalone
 COPY --from=web-builder /app/.next/static ./frontend/.next/standalone/.next/static
 COPY --from=web-builder /app/public ./frontend/.next/standalone/public
 COPY frontend/scripts ./frontend/scripts
-COPY frontend/GLM-Free-API ./frontend/GLM-Free-API
+RUN mkdir -p ./frontend/GLM-Free-API
 COPY --from=go-builder /out/zai-api ./frontend/GLM-Free-API/zai-api
 COPY --from=go-builder /out/token-collector ./frontend/GLM-Free-API/token-collector
 COPY docker/entrypoint.sh /entrypoint.sh
