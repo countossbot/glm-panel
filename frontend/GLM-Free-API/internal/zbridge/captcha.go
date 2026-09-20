@@ -4,20 +4,20 @@
 package zbridge
 
 import (
-    "io"
-    "os"
-    "sort"
-    "bytes"
-    "compress/zlib"
-    "database/sql"
-    "encoding/json"
-    "errors"
-    "fmt"
-    "log"
-    "net/http"
-    "strings"
-    "sync"
-    "time"
+	"bytes"
+	"compress/zlib"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
 // ============================================================================
@@ -26,35 +26,35 @@ import (
 // ============================================================================
 
 func getNextToken() (string, bool) {
-    var token string
-    err := withTokenDB(func(h dbHandle) error {
-        if _, err := os.Stat(h.path); err != nil {
-            logError("Database file not found: " + h.path)
-            return err
-        }
-        return h.db.QueryRow("SELECT token FROM tokens ORDER BY id LIMIT 1;").Scan(&token)
-    })
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            logError("No device tokens available in table 'tokens'")
-        } else if err == ErrDBUnavailable {
-            logError(err.Error())
-        } else {
-            logError("Failed to query token: " + err.Error())
-        }
-        return "", false
-    }
-    return token, true
+	var token string
+	err := withTokenDB(func(h dbHandle) error {
+		if _, err := os.Stat(h.path); err != nil {
+			logError("Database file not found: " + h.path)
+			return err
+		}
+		return h.db.QueryRow("SELECT token FROM tokens ORDER BY id LIMIT 1;").Scan(&token)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			logError("No device tokens available in table 'tokens'")
+		} else if err == ErrDBUnavailable {
+			logError(err.Error())
+		} else {
+			logError("Failed to query token: " + err.Error())
+		}
+		return "", false
+	}
+	return token, true
 }
 
 func removeToken(token string) {
-    err := withTokenDB(func(h dbHandle) error {
-        _, err := h.db.Exec("DELETE FROM tokens WHERE token = ?;", token)
-        return err
-    })
-    if err != nil {
-        logError("Failed to delete consumed token: " + err.Error())
-    }
+	err := withTokenDB(func(h dbHandle) error {
+		_, err := h.db.Exec("DELETE FROM tokens WHERE token = ?;", token)
+		return err
+	})
+	if err != nil {
+		logError("Failed to delete consumed token: " + err.Error())
+	}
 }
 
 // ============================================================================
@@ -62,46 +62,46 @@ func removeToken(token string) {
 // ============================================================================
 
 func generateSignature(params map[string]string, secKey string) string {
-    keys := make([]string, 0, len(params)+1)
-    for k := range params {
-        keys = append(keys, k)
-    }
-    sort.Strings(keys)
+	keys := make([]string, 0, len(params)+1)
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 
-    var canonical strings.Builder
-    canonical.Grow(512)
-    for i, k := range keys {
-        if i > 0 {
-            canonical.WriteByte('&')
-        }
-        canonical.WriteString(urlEncode(k, ""))
-        canonical.WriteByte('=')
-        canonical.WriteString(urlEncode(params[k], ""))
-    }
+	var canonical strings.Builder
+	canonical.Grow(512)
+	for i, k := range keys {
+		if i > 0 {
+			canonical.WriteByte('&')
+		}
+		canonical.WriteString(urlEncode(k, ""))
+		canonical.WriteByte('=')
+		canonical.WriteString(urlEncode(params[k], ""))
+	}
 
-    stringToSign := "POST&" + urlEncode("/", "") + "&" + urlEncode(canonical.String(), "")
-    signingKey := secKey + "&"
-    return base64Encode(hmacSHA1([]byte(signingKey), []byte(stringToSign)))
+	stringToSign := "POST&" + urlEncode("/", "") + "&" + urlEncode(canonical.String(), "")
+	signingKey := secKey + "&"
+	return base64Encode(hmacSHA1([]byte(signingKey), []byte(stringToSign)))
 }
 
 func buildQueryString(params map[string]string) string {
-    keys := make([]string, 0, len(params))
-    for k := range params {
-        keys = append(keys, k)
-    }
-    sort.Strings(keys)
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 
-    var b strings.Builder
-    b.Grow(512)
-    for i, k := range keys {
-        if i > 0 {
-            b.WriteByte('&')
-        }
-        b.WriteString(urlEncode(k, ""))
-        b.WriteByte('=')
-        b.WriteString(urlEncode(params[k], ""))
-    }
-    return b.String()
+	var b strings.Builder
+	b.Grow(512)
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(urlEncode(k, ""))
+		b.WriteByte('=')
+		b.WriteString(urlEncode(params[k], ""))
+	}
+	return b.String()
 }
 
 // ============================================================================
@@ -109,31 +109,31 @@ func buildQueryString(params map[string]string) string {
 // ============================================================================
 
 func httpPost(targetURL, body string, extraHeaders map[string]string) (string, error) {
-    req, err := http.NewRequest("POST", targetURL, strings.NewReader(body))
-    if err != nil {
-        return "", err
-    }
-    req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-    req.ContentLength = int64(len(body))
-    for k, v := range extraHeaders {
-        req.Header.Set(k, v)
-    }
+	req, err := http.NewRequest("POST", targetURL, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.ContentLength = int64(len(body))
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
 
-    resp, err := aliyunHTTPClient.Do(req)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
+	resp, err := aliyunHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
-    buf := bufPool.Get().(*bytes.Buffer)
-    buf.Reset()
-    if _, err := io.Copy(buf, resp.Body); err != nil {
-        bufPool.Put(buf)
-        return "", err
-    }
-    result := buf.String()
-    bufPool.Put(buf)
-    return result, nil
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	if _, err := io.Copy(buf, resp.Body); err != nil {
+		bufPool.Put(buf)
+		return "", err
+	}
+	result := buf.String()
+	bufPool.Put(buf)
+	return result, nil
 }
 
 // ============================================================================
@@ -141,34 +141,57 @@ func httpPost(targetURL, body string, extraHeaders map[string]string) (string, e
 // ============================================================================
 
 func initCaptcha() (string, error) {
-    params := map[string]string{
-        "AccessKeyId":      accessKey,
-        "Action":           "InitCaptchaV3",
-        "Format":           "JSON",
-        "Language":         "en",
-        "Mode":             "popup",
-        "SceneId":          sceneID,
-        "SignatureMethod":  "HMAC-SHA1",
-        "SignatureNonce":   generateUUID(),
-        "SignatureVersion": "1.0",
-        "Timestamp":        getTimestampUTC(),
-        "UpLang":           "true",
-        "Version":          "2023-03-05",
-    }
-    params["Signature"] = generateSignature(params, captchaSecretKey)
+	if strings.TrimSpace(accessKey) == "" {
+		return "", errors.New("ALIYUN_CAPTCHA_ACCESS_KEY is not configured")
+	}
+	if strings.TrimSpace(captchaSecretKey) == "" || strings.HasPrefix(captchaSecretKey, "[REDACTED:") {
+		return "", errors.New("ALIYUN_CAPTCHA_SECRET is not configured")
+	}
+	params := map[string]string{
+		"AccessKeyId":      accessKey,
+		"Action":           "InitCaptchaV3",
+		"Format":           "JSON",
+		"Language":         "en",
+		"Mode":             "popup",
+		"SceneId":          sceneID,
+		"SignatureMethod":  "HMAC-SHA1",
+		"SignatureNonce":   generateUUID(),
+		"SignatureVersion": "1.0",
+		"Timestamp":        getTimestampUTC(),
+		"UpLang":           "true",
+		"Version":          "2023-03-05",
+	}
+	params["Signature"] = generateSignature(params, captchaSecretKey)
 
-    body := buildQueryString(params)
-    resp, err := httpPost(
-        "https://no8xfe.captcha-open-southeast.aliyuncs.com/", body, nil)
-    if err != nil {
-        return "", err
-    }
+	body := buildQueryString(params)
+	resp, err := httpPost(
+		"https://no8xfe.captcha-open-southeast.aliyuncs.com/", body, nil)
+	if err != nil {
+		return "", err
+	}
 
-    var result InitCaptchaResponse
-    if err := json.Unmarshal([]byte(resp), &result); err != nil {
-        return "", fmt.Errorf("parse InitCaptchaV3 response: %w", err)
-    }
-    return result.CertifyID, nil
+	var result InitCaptchaResponse
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		return "", fmt.Errorf("parse InitCaptchaV3 response: %w", err)
+	}
+	if result.CertifyID == "" {
+		code := result.Code
+		if code == "" {
+			code = result.ErrorCode
+		}
+		msg := result.Message
+		if msg == "" {
+			msg = result.ErrorMessage
+		}
+		if code == "" {
+			code = "unknown"
+		}
+		if msg == "" {
+			msg = "empty CertifyId in response"
+		}
+		return "", fmt.Errorf("InitCaptchaV3 rejected request: code=%s message=%s", code, msg)
+	}
+	return result.CertifyID, nil
 }
 
 // ============================================================================
@@ -176,60 +199,60 @@ func initCaptcha() (string, error) {
 // ============================================================================
 
 var argPermTable = [64]int{
-    32, 50, 10, 51, 6, 44, 37, 16, 46, 11, 62, 19, 43, 25, 23, 30,
-    60, 33, 53, 34, 7, 26, 12, 48, 5, 2, 20, 4, 61, 13, 47, 49,
-    18, 29, 27, 22, 1, 17, 39, 56, 41, 38, 55, 31, 15, 58, 52, 40,
-    8, 57, 45, 35, 59, 36, 42, 54, 63, 3, 24, 28, 14, 9, 0, 21,
+	32, 50, 10, 51, 6, 44, 37, 16, 46, 11, 62, 19, 43, 25, 23, 30,
+	60, 33, 53, 34, 7, 26, 12, 48, 5, 2, 20, 4, 61, 13, 47, 49,
+	18, 29, 27, 22, 1, 17, 39, 56, 41, 38, 55, 31, 15, 58, 52, 40,
+	8, 57, 45, 35, 59, 36, 42, 54, 63, 3, 24, 28, 14, 9, 0, 21,
 }
 
 const argConstant = "4xrihv8zb8tf1mfj"
 
 func generateArg(certifyID string) string {
-    encoded := urlEncode(certifyID, "")
+	encoded := urlEncode(certifyID, "")
 
-    // URL-decode (identity for already-decoded strings, kept for faithfulness)
-    o := make([]byte, 0, len(encoded))
-    for i := 0; i < len(encoded); {
-        if encoded[i] == '%' && i+2 < len(encoded) {
-            o = append(o, fromHex(encoded[i+1])<<4|fromHex(encoded[i+2]))
-            i += 3
-        } else {
-            o = append(o, encoded[i])
-            i++
-        }
-    }
+	// URL-decode (identity for already-decoded strings, kept for faithfulness)
+	o := make([]byte, 0, len(encoded))
+	for i := 0; i < len(encoded); {
+		if encoded[i] == '%' && i+2 < len(encoded) {
+			o = append(o, fromHex(encoded[i+1])<<4|fromHex(encoded[i+2]))
+			i += 3
+		} else {
+			o = append(o, encoded[i])
+			i++
+		}
+	}
 
-    // KSA
-    r := argPermTable
-    n := argConstant
-    rlen := 64
+	// KSA
+	r := argPermTable
+	n := argConstant
+	rlen := 64
 
-    i, j := 0, 0
-    for i < rlen {
-        j = (((i + j + r[i] + r[j]) >> 1) + int(n[i%len(n)])) & (rlen - 1)
-        if i != j {
-            r[i], r[j] = r[j], r[i]
-        }
-        i++
-    }
+	i, j := 0, 0
+	for i < rlen {
+		j = (((i + j + r[i] + r[j]) >> 1) + int(n[i%len(n)])) & (rlen - 1)
+		if i != j {
+			r[i], r[j] = r[j], r[i]
+		}
+		i++
+	}
 
-    // PRGA
-    t := make([]byte, 0, len(o))
-    e, a := 0, 0
-    for idx := 0; idx < len(o); idx++ {
-        a = ((e ^ a) + (r[e] ^ r[a])) & (rlen - 1)
-        if e != a {
-            r[e], r[a] = r[a], r[e]
-        }
-        m := int(o[idx])
-        m = m + e + r[e] - a - r[a]
-        m = m ^ (r[e] + r[a])
-        m = m ^ r[(r[e]+r[a])&(rlen-1)]
-        m = m & 255
-        t = append(t, byte(m))
-        e = (e + 1) & (rlen - 1)
-    }
-    return base64Encode(t)
+	// PRGA
+	t := make([]byte, 0, len(o))
+	e, a := 0, 0
+	for idx := 0; idx < len(o); idx++ {
+		a = ((e ^ a) + (r[e] ^ r[a])) & (rlen - 1)
+		if e != a {
+			r[e], r[a] = r[a], r[e]
+		}
+		m := int(o[idx])
+		m = m + e + r[e] - a - r[a]
+		m = m ^ (r[e] + r[a])
+		m = m ^ r[(r[e]+r[a])&(rlen-1)]
+		m = m & 255
+		t = append(t, byte(m))
+		e = (e + 1) & (rlen - 1)
+	}
+	return base64Encode(t)
 }
 
 // ============================================================================
@@ -237,51 +260,51 @@ func generateArg(certifyID string) string {
 // ============================================================================
 
 func aliHash(inputStr, saltStr string) string {
-    o := inputStr
-    r := saltStr
-    aLen := len(o)
-    m := len(r)
+	o := inputStr
+	r := saltStr
+	aLen := len(o)
+	m := len(r)
 
-    var e [16]int
-    for i := 0; i < 16; i++ {
-        e[i] = (i << 4) + (i % 16)
-    }
-    f := 16
+	var e [16]int
+	for i := 0; i < 16; i++ {
+		e[i] = (i << 4) + (i % 16)
+	}
+	f := 16
 
-    i, j := 0, 0
-    for i < f {
-        j = (((i + j + e[i] + e[j]) >> 1) + int(r[i%m])) & (f - 1)
-        e[i], e[j] = e[j], e[i]
-        i++
-    }
+	i, j := 0, 0
+	for i < f {
+		j = (((i + j + e[i] + e[j]) >> 1) + int(r[i%m])) & (f - 1)
+		e[i], e[j] = e[j], e[i]
+		i++
+	}
 
-    idx, p, q := 0, 0, 0
-    for idx < aLen {
-        q = ((p ^ q) + (e[p] ^ e[q])) & (f - 1)
-        e[p], e[q] = e[q], e[p]
-        C := int(o[idx])
-        C = (C + p + q) ^ e[p] ^ e[q]
-        C = C & 255
-        e[p] = C
-        p = (p + 1) & (f - 1)
-        idx++
-    }
+	idx, p, q := 0, 0, 0
+	for idx < aLen {
+		q = ((p ^ q) + (e[p] ^ e[q])) & (f - 1)
+		e[p], e[q] = e[q], e[p]
+		C := int(o[idx])
+		C = (C + p + q) ^ e[p] ^ e[q]
+		C = C & 255
+		e[p] = C
+		p = (p + 1) & (f - 1)
+		idx++
+	}
 
-    for step := 0; step < 2*f; step++ {
-        pos := step % f
-        if pos != 0 {
-            e[pos] ^= e[pos-1]
-        } else {
-            e[0] ^= e[f-1]
-        }
-    }
+	for step := 0; step < 2*f; step++ {
+		pos := step % f
+		if pos != 0 {
+			e[pos] ^= e[pos-1]
+		} else {
+			e[0] ^= e[f-1]
+		}
+	}
 
-    var result [32]byte
-    for i, b := range e {
-        result[i*2] = hexLower[(b>>4)&0xF]
-        result[i*2+1] = hexLower[b&0xF]
-    }
-    return string(result[:])
+	var result [32]byte
+	for i, b := range e {
+		result[i*2] = hexLower[(b>>4)&0xF]
+		result[i*2+1] = hexLower[b&0xF]
+	}
+	return string(result[:])
 }
 
 // ============================================================================
@@ -291,36 +314,36 @@ func aliHash(inputStr, saltStr string) string {
 const encryptKey = "3e627e1b4c63f913"
 
 func encrypt(plaintext []byte) string {
-    o := plaintext
-    n := encryptKey
-    r := argPermTable
-    rlen := 64
+	o := plaintext
+	n := encryptKey
+	r := argPermTable
+	rlen := 64
 
-    oKsa, tKsa := 0, 0
-    for oKsa < rlen {
-        tKsa = (((oKsa + tKsa + r[oKsa] + r[tKsa]) >> 1) + int(n[oKsa%len(n)])) & (rlen - 1)
-        if oKsa != tKsa {
-            r[oKsa], r[tKsa] = r[tKsa], r[oKsa]
-        }
-        oKsa++
-    }
+	oKsa, tKsa := 0, 0
+	for oKsa < rlen {
+		tKsa = (((oKsa + tKsa + r[oKsa] + r[tKsa]) >> 1) + int(n[oKsa%len(n)])) & (rlen - 1)
+		if oKsa != tKsa {
+			r[oKsa], r[tKsa] = r[tKsa], r[oKsa]
+		}
+		oKsa++
+	}
 
-    t := make([]byte, 0, len(o))
-    e, a := 0, 0
-    for nPrga := 0; nPrga < len(o); nPrga++ {
-        a = ((e ^ a) + (r[e] ^ r[a])) & (rlen - 1)
-        if e != a {
-            r[e], r[a] = r[a], r[e]
-        }
-        m := int(o[nPrga])
-        m = m + e + r[e] - a - r[a]
-        m = m ^ (r[e] + r[a])
-        m = m ^ r[(r[e]+r[a])&(rlen-1)]
-        m = m & 255
-        t = append(t, byte(m))
-        e = (e + 1) & (rlen - 1)
-    }
-    return base64Encode(t)
+	t := make([]byte, 0, len(o))
+	e, a := 0, 0
+	for nPrga := 0; nPrga < len(o); nPrga++ {
+		a = ((e ^ a) + (r[e] ^ r[a])) & (rlen - 1)
+		if e != a {
+			r[e], r[a] = r[a], r[e]
+		}
+		m := int(o[nPrga])
+		m = m + e + r[e] - a - r[a]
+		m = m ^ (r[e] + r[a])
+		m = m ^ r[(r[e]+r[a])&(rlen-1)]
+		m = m & 255
+		t = append(t, byte(m))
+		e = (e + 1) & (rlen - 1)
+	}
+	return base64Encode(t)
 }
 
 // ============================================================================
@@ -328,20 +351,20 @@ func encrypt(plaintext []byte) string {
 // ============================================================================
 
 func zlibCompress(data []byte) []byte {
-    buf := bufPool.Get().(*bytes.Buffer)
-    buf.Reset()
-    buf.Grow(len(data) + len(data)/2 + 128)
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.Grow(len(data) + len(data)/2 + 128)
 
-    w := zlibWriterPool.Get().(*zlib.Writer)
-    w.Reset(buf)
-    w.Write(data)
-    w.Close()
-    zlibWriterPool.Put(w)
+	w := zlibWriterPool.Get().(*zlib.Writer)
+	w.Reset(buf)
+	w.Write(data)
+	w.Close()
+	zlibWriterPool.Put(w)
 
-    result := make([]byte, buf.Len())
-    copy(result, buf.Bytes())
-    bufPool.Put(buf)
-    return result
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	bufPool.Put(buf)
+	return result
 }
 
 // ============================================================================
@@ -349,66 +372,79 @@ func zlibCompress(data []byte) []byte {
 // ============================================================================
 
 func verifyCaptcha(certifyID, dataValue, deviceToken string) (string, error) {
-    cvpJSON, err := jsonMarshal(CVP{
-        CertifyID:   certifyID,
-        Data:        dataValue,
-        DeviceToken: deviceToken,
-        SceneID:     sceneID,
-    })
-    if err != nil {
-        return "", err
-    }
+	cvpJSON, err := jsonMarshal(CVP{
+		CertifyID:   certifyID,
+		Data:        dataValue,
+		DeviceToken: deviceToken,
+		SceneID:     sceneID,
+	})
+	if err != nil {
+		return "", err
+	}
 
-    params := map[string]string{
-        "AccessKeyId":        accessKey,
-        "Action":             "VerifyCaptchaV3",
-        "Format":             "JSON",
-        "SignatureMethod":    "HMAC-SHA1",
-        "SignatureVersion":   "1.0",
-        "Timestamp":          getTimestampUTC(),
-        "Version":            "2023-03-05",
-        "SceneId":            sceneID,
-        "CertifyId":          certifyID,
-        "CaptchaVerifyParam": string(cvpJSON),
-        "SignatureNonce":     generateUUID(),
-    }
-    params["Signature"] = generateSignature(params, captchaSecretKey)
+	params := map[string]string{
+		"AccessKeyId":        accessKey,
+		"Action":             "VerifyCaptchaV3",
+		"Format":             "JSON",
+		"SignatureMethod":    "HMAC-SHA1",
+		"SignatureVersion":   "1.0",
+		"Timestamp":          getTimestampUTC(),
+		"Version":            "2023-03-05",
+		"SceneId":            sceneID,
+		"CertifyId":          certifyID,
+		"CaptchaVerifyParam": string(cvpJSON),
+		"SignatureNonce":     generateUUID(),
+	}
+	params["Signature"] = generateSignature(params, captchaSecretKey)
 
-    body := buildQueryString(params)
-    resp, err := httpPost(
-        "https://no8xfe-verify.captcha-open-southeast.aliyuncs.com/",
-        body, map[string]string{"Referer": ""})
-    if err != nil {
-        return "", err
-    }
+	body := buildQueryString(params)
+	resp, err := httpPost(
+		"https://no8xfe-verify.captcha-open-southeast.aliyuncs.com/",
+		body, map[string]string{"Referer": ""})
+	if err != nil {
+		return "", err
+	}
 
-    var respJSON VerifyCaptchaResponse
-    if err := json.Unmarshal([]byte(resp), &respJSON); err != nil {
-        return "", fmt.Errorf("parse VerifyCaptchaV3 response: %w", err)
-    }
+	var respJSON VerifyCaptchaResponse
+	if err := json.Unmarshal([]byte(resp), &respJSON); err != nil {
+		return "", fmt.Errorf("parse VerifyCaptchaV3 response: %w", err)
+	}
 
-    if respJSON.Success && respJSON.Result.VerifyResult {
-        st := respJSON.Result.SecurityToken
-        ci := respJSON.Result.CertifyID
-        if st != "" && ci != "" {
-            fpJSON, err := jsonMarshal(FinalPayload{
-                CertifyID:     ci,
-                IsSign:        true,
-                SceneID:       sceneID,
-                SecurityToken: st,
-            })
-            if err != nil {
-                return "", err
-            }
-            return base64Encode(fpJSON), nil
-        }
-        logError("VerifyCaptchaV3 succeeded but securityToken/certifyId empty for deviceToken=" + deviceToken)
-    } else if respJSON.Success {
-        logError("deviceToken failed verification (VerifyResult=false): " + deviceToken)
-    } else {
-        logError("VerifyCaptchaV3 request unsuccessful for deviceToken=" + deviceToken + " response=" + resp)
-    }
-    return "", nil
+	if respJSON.Success && respJSON.Result.VerifyResult {
+		st := respJSON.Result.SecurityToken
+		ci := respJSON.Result.CertifyID
+		if st != "" && ci != "" {
+			fpJSON, err := jsonMarshal(FinalPayload{
+				CertifyID:     ci,
+				IsSign:        true,
+				SceneID:       sceneID,
+				SecurityToken: st,
+			})
+			if err != nil {
+				return "", err
+			}
+			return base64Encode(fpJSON), nil
+		}
+		return "", fmt.Errorf("VerifyCaptchaV3 returned success without securityToken/certifyId")
+	} else if respJSON.Success {
+		return "", fmt.Errorf("VerifyCaptchaV3 VerifyResult=false")
+	} else {
+		code := respJSON.Code
+		if code == "" {
+			code = respJSON.ErrorCode
+		}
+		msg := respJSON.Message
+		if msg == "" {
+			msg = respJSON.ErrorMessage
+		}
+		if code == "" {
+			code = "unknown"
+		}
+		if msg == "" {
+			msg = "request unsuccessful"
+		}
+		return "", fmt.Errorf("VerifyCaptchaV3 rejected request: code=%s message=%s", code, msg)
+	}
 }
 
 // ============================================================================
@@ -416,69 +452,68 @@ func verifyCaptcha(certifyID, dataValue, deviceToken string) (string, error) {
 // ============================================================================
 
 func computeFinalPayload() string {
-    for attempt := 0; attempt < maxTokenRetries; attempt++ {
-        deviceToken, ok := getNextToken()
-        if !ok {
-            logError(fmt.Sprintf("No device tokens remaining (attempt %d/%d)",
-                attempt+1, maxTokenRetries))
-            return ""
-        }
-        logInfo(fmt.Sprintf("Attempt %d/%d using deviceToken=%s",
-            attempt+1, maxTokenRetries, deviceToken))
+	for attempt := 0; attempt < maxTokenRetries; attempt++ {
+		deviceToken, ok := getNextToken()
+		if !ok {
+			logError(fmt.Sprintf("No device tokens remaining (attempt %d/%d)",
+				attempt+1, maxTokenRetries))
+			return ""
+		}
+		logInfo(fmt.Sprintf("Attempt %d/%d using deviceToken=%s",
+			attempt+1, maxTokenRetries, deviceToken))
 
-        payload, err := tryCompute(deviceToken)
-        if err != nil {
-            logError(fmt.Sprintf("Attempt %d failed for deviceToken=%s: %v",
-                attempt+1, deviceToken, err))
-            continue
-        }
-        if payload != "" {
-            return payload
-        }
-        logError("deviceToken=" + deviceToken + " produced empty payload, retrying")
-    }
-    logError(fmt.Sprintf("All %d token retries exhausted", maxTokenRetries))
-    return ""
+		payload, err := tryCompute(deviceToken)
+		if err != nil {
+			logError(fmt.Sprintf("Attempt %d failed for deviceToken=%s: %v",
+				attempt+1, deviceToken, err))
+			continue
+		}
+		if payload != "" {
+			return payload
+		}
+		logError("deviceToken=" + deviceToken + " produced empty payload, retrying")
+	}
+	logError(fmt.Sprintf("All %d token retries exhausted", maxTokenRetries))
+	return ""
 }
 
 func tryCompute(deviceToken string) (string, error) {
-    certifyID, err := initCaptcha()
-    if err != nil {
-        removeToken(deviceToken)
-        return "", fmt.Errorf("initCaptcha: %w", err)
-    }
+	certifyID, err := initCaptcha()
+	if err != nil {
+		removeToken(deviceToken)
+		return "", fmt.Errorf("initCaptcha: %w", err)
+	}
 
-    argValue := generateArg(certifyID)
-    ct := currentTimeMillis()
+	argValue := generateArg(certifyID)
+	ct := currentTimeMillis()
 
-    track := Track{
-        TrackList: TrackList{
-            StartTime: ct,
-        },
-        TrackStartTime: ct,
-        VerifyTime:     ct + 300,
-        Arg:            argValue,
-    }
-    jsonBytes, err := jsonMarshal(track)
-    if err != nil {
-        removeToken(deviceToken)
-        return "", err
-    }
+	track := Track{
+		TrackList: TrackList{
+			StartTime: ct,
+		},
+		TrackStartTime: ct,
+		VerifyTime:     ct + 300,
+		Arg:            argValue,
+	}
+	jsonBytes, err := jsonMarshal(track)
+	if err != nil {
+		removeToken(deviceToken)
+		return "", err
+	}
 
-    h := aliHash(string(jsonBytes), "0000")
-    combined := h + string(jsonBytes)
-    compressed := zlibCompress([]byte(combined))
-    fb64 := base64Encode(compressed)
-    finalVal := encrypt([]byte(fb64))
+	h := aliHash(string(jsonBytes), "0000")
+	combined := h + string(jsonBytes)
+	compressed := zlibCompress([]byte(combined))
+	fb64 := base64Encode(compressed)
+	finalVal := encrypt([]byte(fb64))
 
-    // Always remove token after use — prevents conflicts
-    removeToken(deviceToken)
-
-    payload, err := verifyCaptcha(certifyID, finalVal, deviceToken)
-    if err != nil {
-        return "", fmt.Errorf("verifyCaptcha: %w", err)
-    }
-    return payload, nil
+	payload, err := verifyCaptcha(certifyID, finalVal, deviceToken)
+	if err != nil {
+		return "", fmt.Errorf("verifyCaptcha: %w", err)
+	}
+	// The token is consumed only after a successful captcha verification.
+	removeToken(deviceToken)
+	return payload, nil
 }
 
 // ============================================================================
@@ -486,113 +521,113 @@ func tryCompute(deviceToken string) (string, error) {
 // ============================================================================
 
 type cachedCaptcha struct {
-    value       string
-    generatedAt time.Time
+	value       string
+	generatedAt time.Time
 }
 
 type CaptchaCache struct {
-    mu         sync.Mutex
-    params     []cachedCaptcha
-    maxParams  int
-    generating int
-    active     bool
-    lastActive time.Time
+	mu         sync.Mutex
+	params     []cachedCaptcha
+	maxParams  int
+	generating int
+	active     bool
+	lastActive time.Time
 }
 
 var captchaCache = &CaptchaCache{
-    maxParams: 2,
-    // Zero means no request has used the captcha cache yet. Background
-    // generation must stay completely idle until real API activity occurs.
-    lastActive: time.Time{},
+	maxParams: 2,
+	// Zero means no request has used the captcha cache yet. Background
+	// generation must stay completely idle until real API activity occurs.
+	lastActive: time.Time{},
 }
 
 func (c *CaptchaCache) markActive() {
-    c.mu.Lock()
-    c.lastActive = time.Now()
-    c.active = true
-    c.mu.Unlock()
+	c.mu.Lock()
+	c.lastActive = time.Now()
+	c.active = true
+	c.mu.Unlock()
 }
 
 func (c *CaptchaCache) Get() (string, bool) {
-    c.markActive()
-    c.mu.Lock()
-    defer c.mu.Unlock()
+	c.markActive()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-    // Sweep expired (75s TTL)
-    var valid []cachedCaptcha
-    for _, p := range c.params {
-        if time.Since(p.generatedAt) < 75*time.Second {
-            valid = append(valid, p)
-        }
-    }
-    c.params = valid
+	// Sweep expired (75s TTL)
+	var valid []cachedCaptcha
+	for _, p := range c.params {
+		if time.Since(p.generatedAt) < 75*time.Second {
+			valid = append(valid, p)
+		}
+	}
+	c.params = valid
 
-    if len(c.params) > 0 {
-        val := c.params[0].value
-        c.params = c.params[1:]
-        return val, true
-    }
-    return "", false
+	if len(c.params) > 0 {
+		val := c.params[0].value
+		c.params = c.params[1:]
+		return val, true
+	}
+	return "", false
 }
 
 func (c *CaptchaCache) Run() {
-    // Wait a moment before starting to allow session to init
-    time.Sleep(2 * time.Second)
-    ticker := time.NewTicker(500 * time.Millisecond)
-    defer ticker.Stop()
+	// Wait a moment before starting to allow session to init
+	time.Sleep(2 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        c.mu.Lock()
-        
-        // Never generate captcha params on startup. The cache becomes active
-        // only after Get() is called by a real completion request. Once there
-        // has been no request for 3 minutes, pause again to preserve tokens.
-        if c.lastActive.IsZero() || time.Since(c.lastActive) > 3*time.Minute {
-            c.active = false
-            c.mu.Unlock()
-            continue
-        }
-        c.active = true
+	for range ticker.C {
+		c.mu.Lock()
 
-        // Sweep expired
-        var valid []cachedCaptcha
-        for _, p := range c.params {
-            if time.Since(p.generatedAt) < 75*time.Second {
-                valid = append(valid, p)
-            }
-        }
-        c.params = valid
+		// Never generate captcha params on startup. The cache becomes active
+		// only after Get() is called by a real completion request. Once there
+		// has been no request for 3 minutes, pause again to preserve tokens.
+		if c.lastActive.IsZero() || time.Since(c.lastActive) > 3*time.Minute {
+			c.active = false
+			c.mu.Unlock()
+			continue
+		}
+		c.active = true
 
-        needed := c.maxParams - len(c.params) - c.generating
-        if needed > 0 {
-            c.generating += needed
-            c.mu.Unlock()
-            // Launch generation in parallel
-            for i := 0; i < needed; i++ {
-                go c.generate()
-            }
-        } else {
-            c.mu.Unlock()
-        }
-    }
+		// Sweep expired
+		var valid []cachedCaptcha
+		for _, p := range c.params {
+			if time.Since(p.generatedAt) < 75*time.Second {
+				valid = append(valid, p)
+			}
+		}
+		c.params = valid
+
+		needed := c.maxParams - len(c.params) - c.generating
+		if needed > 0 {
+			c.generating += needed
+			c.mu.Unlock()
+			// Launch generation in parallel
+			for i := 0; i < needed; i++ {
+				go c.generate()
+			}
+		} else {
+			c.mu.Unlock()
+		}
+	}
 }
 
 func (c *CaptchaCache) generate() {
-    startedAt := time.Now()
-    payload := computeFinalPayload()
-    
-    c.mu.Lock()
-    c.generating--
-    if payload != "" {
-        c.params = append(c.params, cachedCaptcha{
-            value:       payload,
-            generatedAt: time.Now(),
-        })
-        logInfo(fmt.Sprintf("[Captcha Cache] ✓ generated param in %.1fs (cache size: %d)", time.Since(startedAt).Seconds(), len(c.params)))
-    } else {
-        logError("[Captcha Cache] ✗ failed to generate param")
-    }
-    c.mu.Unlock()
+	startedAt := time.Now()
+	payload := computeFinalPayload()
+
+	c.mu.Lock()
+	c.generating--
+	if payload != "" {
+		c.params = append(c.params, cachedCaptcha{
+			value:       payload,
+			generatedAt: time.Now(),
+		})
+		logInfo(fmt.Sprintf("[Captcha Cache] ✓ generated param in %.1fs (cache size: %d)", time.Since(startedAt).Seconds(), len(c.params)))
+	} else {
+		logError("[Captcha Cache] ✗ failed to generate param")
+	}
+	c.mu.Unlock()
 }
 
 // ============================================================================
@@ -607,52 +642,51 @@ func (c *CaptchaCache) generate() {
 var captchaParamOverride string
 
 func getCaptchaVerifyParam() (string, error) {
-    if captchaParamOverride != "" {
-        return captchaParamOverride, nil
-    }
-    if config.AgentMode {
-        if val, ok := captchaCache.Get(); ok {
-            logInfo("[Captcha Cache] hit - using cached param")
-            return val, nil
-        }
-        logInfo("[Captcha Cache] miss - generating synchronously")
-    }
+	if captchaParamOverride != "" {
+		return captchaParamOverride, nil
+	}
+	if config.AgentMode {
+		if val, ok := captchaCache.Get(); ok {
+			logInfo("[Captcha Cache] hit - using cached param")
+			return val, nil
+		}
+		logInfo("[Captcha Cache] miss - generating synchronously")
+	}
 
-    startedAt := time.Now()
-    log.Printf("[Captcha] → computing CaptchaVerifyParam (in-memory IPC)")
+	startedAt := time.Now()
+	log.Printf("[Captcha] → computing CaptchaVerifyParam (in-memory IPC)")
 
-    type result struct {
-        val string
-        err error
-    }
-    ch := make(chan result, 1)
+	type result struct {
+		val string
+		err error
+	}
+	ch := make(chan result, 1)
 
-    go func() {
-        payload := computeFinalPayload()
-        if payload == "" {
-            ch <- result{"", errors.New("captcha generation returned empty payload")}
-            return
-        }
-        ch <- result{payload, nil}
-    }()
+	go func() {
+		payload := computeFinalPayload()
+		if payload == "" {
+			ch <- result{"", errors.New("captcha generation returned empty payload")}
+			return
+		}
+		ch <- result{payload, nil}
+	}()
 
-    select {
-    case r := <-ch:
-        elapsed := time.Since(startedAt).Seconds()
-        if r.err != nil {
-            log.Printf("[Captcha] ✗ error: %s", r.err.Error())
-            return "", r.err
-        }
-        if r.val == "" {
-            log.Printf("[Captcha] ✗ empty response after %.1fs", elapsed)
-            return "", errors.New("captcha generation returned empty response")
-        }
-        log.Printf("[Captcha] ✓ got %db in %.1fs", len(r.val), elapsed)
-        return r.val, nil
-    case <-time.After(90 * time.Second):
-        elapsed := time.Since(startedAt).Seconds()
-        log.Printf("[Captcha] ✗ timeout after %.1fs", elapsed)
-        return "", errors.New("captcha generation timeout after 90s")
-    }
+	select {
+	case r := <-ch:
+		elapsed := time.Since(startedAt).Seconds()
+		if r.err != nil {
+			log.Printf("[Captcha] ✗ error: %s", r.err.Error())
+			return "", r.err
+		}
+		if r.val == "" {
+			log.Printf("[Captcha] ✗ empty response after %.1fs", elapsed)
+			return "", errors.New("captcha generation returned empty response")
+		}
+		log.Printf("[Captcha] ✓ got %db in %.1fs", len(r.val), elapsed)
+		return r.val, nil
+	case <-time.After(90 * time.Second):
+		elapsed := time.Since(startedAt).Seconds()
+		log.Printf("[Captcha] ✗ timeout after %.1fs", elapsed)
+		return "", errors.New("captcha generation timeout after 90s")
+	}
 }
-
