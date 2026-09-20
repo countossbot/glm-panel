@@ -23,15 +23,18 @@ RUN NEXT_TELEMETRY_DISABLED=1 npm run build
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=512 \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     GLM_PROJECT_ROOT=/app/frontend \
     GLM_BRIDGE_URL=http://127.0.0.1:3001 \
-    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-headless-shell
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium curl python3 ca-certificates tini \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends chromium-headless-shell curl ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/* /tmp/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 WORKDIR /app
 COPY --from=web-builder /app/.next/standalone ./frontend/.next/standalone

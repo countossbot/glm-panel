@@ -83,7 +83,8 @@ while true; do
     need=$((TARGET - pool))
     [ "$need" -gt 1500 ] && need=1500   # collector per-run hard cap
     log "pool=$pool below threshold $REFILL_BELOW -> topping up +$need device tokens (--topup, no wipe)"
-    ./token-collector --topup --no-tui --tokens "$need" --batch 1 --parallel 1 \
+    GOMEMLIMIT="${COLLECTOR_GOMEMLIMIT:-512MiB}" \
+      ./token-collector --topup --no-tui --tokens "$need" --batch 1 --parallel 1 \
       >> "$COLLECTOR_LOG" 2>&1 &
     COLLECTOR_PID=$!
     echo "$COLLECTOR_PID" > "$COLLECTOR_PID_FILE"

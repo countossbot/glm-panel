@@ -86,11 +86,10 @@ var (
 )
 
 // ---------- init: tune GC for throughput ----------
-// Default Go GC runs at 100% (doubles heap before collecting).
-// Bumping to 200% lets the heap grow 3× before collecting, cutting GC
-// pauses by ~half in allocation-heavy workloads like token collection.
+// Keep the collector's Go heap bounded for long-running Docker watchdog refills.
+// Token collection is browser-heavy, so retaining large Go heaps provides little benefit.
 func init() {
-	debug.SetGCPercent(200)
+	debug.SetGCPercent(100)
 }
 
 // ---------- TUI (Bubble Tea) ----------
@@ -1228,10 +1227,6 @@ func runParallel(browser playwright.Browser, tokenCount, batchCount, workers int
 // detection — keeps the renderer hot and avoids IPC storms.
 var chromiumPerfArgs = []string{
 	"--disable-blink-features=AutomationControlled",
-	"--disable-background-timer-throttling",
-	"--disable-renderer-backgrounding",
-	"--disable-backgrounding-occluded-windows",
-	"--disable-ipc-flooding-protection",
 	"--disable-background-networking",
 	"--disable-default-apps",
 	"--disable-extensions",

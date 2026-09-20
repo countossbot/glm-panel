@@ -8,7 +8,7 @@ services:
     environment:
       GLM_PROJECT_ROOT: /app/frontend
       GLM_BRIDGE_URL: http://127.0.0.1:3001
-      CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+      CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium-headless-shell
       ALIYUN_CAPTCHA_ACCESS_KEY: ${ALIYUN_CAPTCHA_ACCESS_KEY:-}
       ALIYUN_CAPTCHA_SECRET: ${ALIYUN_CAPTCHA_SECRET:-}
       TARGET: ${TARGET:-150}
