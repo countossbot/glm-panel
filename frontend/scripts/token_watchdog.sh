@@ -94,10 +94,10 @@ while true; do
     rm -f "$COLLECTOR_PID_FILE"
     after=$(count_tokens)
     added=$((after - pool))
-    if [ "$rc" -eq 0 ] && [ "$after" -ge "$pool" ]; then
+    if [ "$rc" -eq 0 ] && [ "$after" -gt "$pool" ]; then
       log "REFILL pool $pool -> $after (+$added tokens, collector rc=0)"
     else
-      log "REFILL FAILED pool=$pool after=$after rc=$rc — backing off, retry next cycle"
+      log "REFILL FAILED pool=$pool after=$after (+$added) rc=$rc — backing off, retry next cycle"
       sleep "$CHECK_EVERY"
     fi
   else

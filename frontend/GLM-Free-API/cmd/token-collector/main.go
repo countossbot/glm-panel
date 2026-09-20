@@ -403,7 +403,10 @@ func openTokenStore(dbPath string) (*tokenStore, error) {
 		return nil, err
 	}
 
-	stmt, err := db.Prepare(`INSERT INTO tokens (token, batch) VALUES (?, ?)`)
+	// Top-up runs intentionally encounter duplicates because the collector can
+	// rediscover tokens already present in the live pool. Ignore those rows so
+	// one duplicate never aborts the whole refill transaction.
+	stmt, err := db.Prepare(`INSERT OR IGNORE INTO tokens (token, batch) VALUES (?, ?)`)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -426,12 +429,23 @@ func (ts *tokenStore) merge(batchNum int, tokens []string) error {
 	txStmt := tx.Stmt(ts.stmt)
 	defer txStmt.Close()
 
+	inserted := 0
 	for _, tok := range tokens {
-		if _, err := txStmt.Exec(tok, batchNum); err != nil {
+		result, err := txStmt.Exec(tok, batchNum)
+		if err != nil {
 			return err
 		}
+		if n, err := result.RowsAffected(); err == nil {
+			inserted += int(n)
+		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if inserted == 0 {
+		return fmt.Errorf("database merge: collector returned %d tokens but all were duplicates", len(tokens))
+	}
+	return nil
 }
 
 func (ts *tokenStore) close() {
