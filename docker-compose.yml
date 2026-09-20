@@ -1,6 +1,6 @@
 services:
   glm-panel:
-    image: ghcr.io/countossbot/glm-panel@sha256:864144d35dc86a52d1edbffd638ba01830fa095690f316059ff0f94bf7e8591b
+    image: ghcr.io/countossbot/glm-panel:latest
     container_name: glm-panel
     restart: unless-stopped
     ports:
