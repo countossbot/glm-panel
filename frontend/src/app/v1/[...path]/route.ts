@@ -121,6 +121,9 @@ async function proxyResponses(req: Request): Promise<Response> {
   let buffer = "";
   let fullText = "";
   let completed = false;
+  let upstreamFailed = false;
+  let upstreamFailureMessage = "";
+  let upstreamFinished = false;
   const emit = (controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) => controller.enqueue(encoder.encode(responseEvent(event, data)));
 
   const stream = new ReadableStream<Uint8Array>({
@@ -134,6 +137,11 @@ async function proxyResponses(req: Request): Promise<Response> {
       const finish = () => {
         if (completed) return;
         completed = true;
+        if (upstreamFailed) {
+          emit(controller, "response.failed", { type: "response.failed", response: { id: responseId, object: "response", created_at: createdAt, status: "failed", model, output: [], error: { code: "upstream_stream_error", message: upstreamFailureMessage || "upstream response stream failed" } } });
+          controller.close();
+          return;
+        }
         if (fullText && messageStarted) {
           emit(controller, "response.output_text.done", { type: "response.output_text.done", text: fullText, response_id: responseId, item_id: itemId, output_index: 0, content_index: 0, logprobs: [] });
           emit(controller, "response.content_part.done", { type: "response.content_part.done", response_id: responseId, item_id: itemId, output_index: 0, content_index: 0, part: { type: "output_text", text: fullText, annotations: [] } });
@@ -164,7 +172,13 @@ async function proxyResponses(req: Request): Promise<Response> {
             if (!data || data === "[DONE]") continue;
             let chunk: any;
             try { chunk = JSON.parse(data); } catch { continue; }
+            if (chunk?.error) {
+              upstreamFailed = true;
+              upstreamFailureMessage = typeof chunk.error?.message === "string" ? chunk.error.message : "upstream response stream failed";
+              continue;
+            }
             const choice = chunk?.choices?.[0];
+            if (choice?.finish_reason != null) upstreamFinished = true;
             const delta = choice?.delta?.content;
             if (typeof delta === "string" && delta) {
               if (!messageStarted) {
@@ -197,14 +211,21 @@ async function proxyResponses(req: Request): Promise<Response> {
             if (choice?.finish_reason != null) finish();
           }
         }
-        if (!completed) finish();
+        // A normal upstream EOF is only successful if we actually received
+        // a usable completion stream. An empty stream is not a completed
+        // Responses response and must not be disguised as response.completed.
+        if (!completed) {
+          if (!upstreamFinished && !fullText && functionCalls.size === 0 && !upstreamFailed) {
+            upstreamFailed = true;
+            upstreamFailureMessage = "upstream stream ended without a completion event";
+          }
+          finish();
+        }
       } catch (error) {
         if (!completed) {
-          if (fullText || functionCalls.size) finish();
-          else {
-            emit(controller, "response.failed", { type: "response.failed", response: { id: responseId, object: "response", created_at: createdAt, status: "failed", model, output: [], error: { code: "upstream_stream_error", message: error instanceof Error ? error.message : String(error) } } });
-            controller.close();
-          }
+          emit(controller, "response.failed", { type: "response.failed", response: { id: responseId, object: "response", created_at: createdAt, status: "failed", model, output: [], error: { code: "upstream_stream_error", message: error instanceof Error ? error.message : String(error) } } });
+          completed = true;
+          controller.close();
         }
       }
     },

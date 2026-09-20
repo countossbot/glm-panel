@@ -500,8 +500,10 @@ type CaptchaCache struct {
 }
 
 var captchaCache = &CaptchaCache{
-    maxParams:  2,
-    lastActive: time.Now(),
+    maxParams: 2,
+    // Zero means no request has used the captcha cache yet. Background
+    // generation must stay completely idle until real API activity occurs.
+    lastActive: time.Time{},
 }
 
 func (c *CaptchaCache) markActive() {
@@ -542,8 +544,10 @@ func (c *CaptchaCache) Run() {
     for range ticker.C {
         c.mu.Lock()
         
-        // If no activity in the last 3 minutes, pause generation to save tokens
-        if time.Since(c.lastActive) > 3*time.Minute {
+        // Never generate captcha params on startup. The cache becomes active
+        // only after Get() is called by a real completion request. Once there
+        // has been no request for 3 minutes, pause again to preserve tokens.
+        if c.lastActive.IsZero() || time.Since(c.lastActive) > 3*time.Minute {
             c.active = false
             c.mu.Unlock()
             continue

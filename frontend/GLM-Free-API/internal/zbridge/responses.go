@@ -66,6 +66,9 @@ func responsesHandler(w http.ResponseWriter, r *http.Request) {
         stream: req.Stream == nil || *req.Stream,
     }
     chatCompletionsHandler(rw, chatReqHTTP)
+    if rw.stream {
+        rw.finish()
+    }
 }
 
 func responsesInputToMessages(input json.RawMessage, instructions string) ([]map[string]interface{}, error) {
@@ -124,12 +127,18 @@ type responsesWriter struct {
     underlying http.ResponseWriter
     model, responseID string
     created int64
-    stream, started, completed bool
+    statusCode int
+    stream, started, completed, failed, messageStarted bool
     fullText strings.Builder
+    sseBuffer string
+    failureMessage string
 }
 
 func (rw *responsesWriter) Header() http.Header { return rw.header }
-func (rw *responsesWriter) WriteHeader(status int) { rw.underlying.WriteHeader(status) }
+func (rw *responsesWriter) WriteHeader(status int) {
+    rw.statusCode = status
+    rw.underlying.WriteHeader(status)
+}
 func (rw *responsesWriter) Flush() { if f, ok := rw.underlying.(http.Flusher); ok { f.Flush() } }
 
 func (rw *responsesWriter) start() {
@@ -145,12 +154,22 @@ func (rw *responsesWriter) start() {
 
 func (rw *responsesWriter) Write(p []byte) (int, error) {
     if !rw.stream { return rw.writeNonStream(p) }
+    if rw.completed { return len(p), nil }
     rw.start()
-    for _, line := range strings.Split(string(p), "\n") {
+    rw.sseBuffer += string(p)
+    lines := strings.Split(rw.sseBuffer, "\n")
+    rw.sseBuffer = lines[len(lines)-1]
+    for _, line := range lines[:len(lines)-1] {
         line = strings.TrimSpace(line)
         if !strings.HasPrefix(line, "data:") { continue }
         data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
         if data == "" || data == "[DONE]" { continue }
+        var upstreamError struct { Error struct { Message string `json:"message"` } `json:"error"` }
+        if json.Unmarshal([]byte(data), &upstreamError) == nil && upstreamError.Error.Message != "" {
+            rw.failed = true
+            rw.failureMessage = upstreamError.Error.Message
+            continue
+        }
         var chunk struct {
             Choices []struct {
                 Delta struct { Content string `json:"content"`; ReasoningContent string `json:"reasoning_content"` } `json:"delta"`
@@ -160,16 +179,72 @@ func (rw *responsesWriter) Write(p []byte) (int, error) {
         if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) == 0 { continue }
         delta := chunk.Choices[0].Delta.Content
         if delta != "" {
+            if !rw.messageStarted {
+                rw.messageStarted = true
+                rw.emit("response.output_item.added", map[string]interface{}{"type":"response.output_item.added","response_id":rw.responseID,"output_index":0,"item":map[string]interface{}{"id":rw.responseID+"_item","type":"message","status":"in_progress","role":"assistant","content":[]interface{}{}}})
+                rw.emit("response.content_part.added", map[string]interface{}{"type":"response.content_part.added","response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0,"part":map[string]interface{}{"type":"output_text","text":"","annotations":[]interface{}{}}})
+            }
             rw.fullText.WriteString(delta)
             rw.emit("response.output_text.delta", map[string]interface{}{"type":"response.output_text.delta","delta":delta,"response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0})
         }
         if chunk.Choices[0].FinishReason != nil && !rw.completed {
-            rw.completed = true
-            rw.emit("response.output_text.done", map[string]interface{}{"type":"response.output_text.done","text":rw.fullText.String(),"response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0})
-            rw.emit("response.completed", map[string]interface{}{"type":"response.completed","response":map[string]interface{}{"id":rw.responseID,"object":"response","created_at":rw.created,"status":"completed","model":rw.model}})
+            rw.finish()
         }
     }
     return len(p), nil
+}
+
+func (rw *responsesWriter) finish() {
+    if !rw.stream || rw.completed { return }
+    // A Response stream must end with a semantic terminal event, not merely EOF.
+    // Flush any final complete SSE line that arrived in a separate Write call.
+    if strings.TrimSpace(rw.sseBuffer) != "" {
+        line := strings.TrimSpace(rw.sseBuffer)
+        rw.sseBuffer = ""
+        if strings.HasPrefix(line, "data:") {
+            data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+            if data != "" && data != "[DONE]" {
+                var chunk struct {
+                    Choices []struct {
+                        Delta struct { Content string `json:"content"` } `json:"delta"`
+                        FinishReason interface{} `json:"finish_reason"`
+                    } `json:"choices"`
+                }
+                if json.Unmarshal([]byte(data), &chunk) == nil && len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+                    if !rw.messageStarted {
+                        rw.messageStarted = true
+                        rw.emit("response.output_item.added", map[string]interface{}{"type":"response.output_item.added","response_id":rw.responseID,"output_index":0,"item":map[string]interface{}{"id":rw.responseID+"_item","type":"message","status":"in_progress","role":"assistant","content":[]interface{}{}}})
+                        rw.emit("response.content_part.added", map[string]interface{}{"type":"response.content_part.added","response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0,"part":map[string]interface{}{"type":"output_text","text":"","annotations":[]interface{}{}}})
+                    }
+                    delta := chunk.Choices[0].Delta.Content
+                    rw.fullText.WriteString(delta)
+                    rw.emit("response.output_text.delta", map[string]interface{}{"type":"response.output_text.delta","delta":delta,"response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0})
+                }
+            }
+        }
+    }
+    rw.completed = true
+    if rw.statusCode >= http.StatusBadRequest {
+        rw.failed = true
+        if rw.failureMessage == "" { rw.failureMessage = "upstream HTTP error" }
+    }
+    if rw.failed {
+        message := rw.failureMessage
+        if message == "" { message = "upstream response stream failed" }
+        rw.emit("response.failed", map[string]interface{}{"type":"response.failed","response":map[string]interface{}{"id":rw.responseID,"object":"response","created_at":rw.created,"status":"failed","model":rw.model,"output":[]interface{}{},"error":map[string]interface{}{"code":"upstream_stream_error","message":message}}})
+        return
+    }
+    if rw.messageStarted {
+        text := rw.fullText.String()
+        rw.emit("response.output_text.done", map[string]interface{}{"type":"response.output_text.done","text":text,"response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0,"logprobs":[]interface{}{}})
+        rw.emit("response.content_part.done", map[string]interface{}{"type":"response.content_part.done","response_id":rw.responseID,"item_id":rw.responseID+"_item","output_index":0,"content_index":0,"part":map[string]interface{}{"type":"output_text","text":text,"annotations":[]interface{}{}}})
+        rw.emit("response.output_item.done", map[string]interface{}{"type":"response.output_item.done","response_id":rw.responseID,"output_index":0,"item":map[string]interface{}{"id":rw.responseID+"_item","type":"message","status":"completed","role":"assistant","content":[]interface{}{map[string]interface{}{"type":"output_text","text":text,"annotations":[]interface{}{}}}}})
+    }
+    output := []interface{}{}
+    if rw.messageStarted {
+        output = append(output, map[string]interface{}{"id":rw.responseID+"_item","type":"message","status":"completed","role":"assistant","content":[]interface{}{map[string]interface{}{"type":"output_text","text":rw.fullText.String(),"annotations":[]interface{}{}}}})
+    }
+    rw.emit("response.completed", map[string]interface{}{"type":"response.completed","response":map[string]interface{}{"id":rw.responseID,"object":"response","created_at":rw.created,"status":"completed","model":rw.model,"output":output}})
 }
 
 func (rw *responsesWriter) writeNonStream(p []byte) (int, error) {
