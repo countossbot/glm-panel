@@ -1264,22 +1264,25 @@ var chromiumPerfArgs = []string{
 // default args so the automation infobar flag never reaches the engine.
 func launchBrowser(pw *playwright.Playwright, headed bool) (playwright.Browser, error) {
 	base := append([]string{}, chromiumPerfArgs...)
+	launchOptions := func(headless bool, args []string) playwright.BrowserTypeLaunchOptions {
+		opts := playwright.BrowserTypeLaunchOptions{
+			Headless:          playwright.Bool(headless),
+			Args:              args,
+			IgnoreDefaultArgs: []string{"--enable-automation"},
+		}
+		if executable := os.Getenv("CHROMIUM_EXECUTABLE_PATH"); executable != "" {
+			opts.ExecutablePath = playwright.String(executable)
+		}
+		return opts
+	}
 
 	if headed {
 		// Real visible window for debugging — stealth script still applies.
-		return pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-			Headless:          playwright.Bool(false),
-			Args:              base,
-			IgnoreDefaultArgs: []string{"--enable-automation"},
-		})
+		return pw.Chromium.Launch(launchOptions(false, base))
 	}
 
 	args := append(base, "--headless=new", "--window-size=1920,1080")
-	b, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless:          playwright.Bool(false), // OUR flag controls headlessness
-		Args:              args,
-		IgnoreDefaultArgs: []string{"--enable-automation"},
-	})
+	b, err := pw.Chromium.Launch(launchOptions(false, args)) // OUR flag controls headlessness
 	if err == nil {
 		return b, nil
 	}
@@ -1287,11 +1290,7 @@ func launchBrowser(pw *playwright.Playwright, headed bool) (playwright.Browser, 
 	// Fallback for ancient Chromium builds that reject --headless=new:
 	// classic headless — the stealth script still patches the surface.
 	fmt.Fprintf(os.Stderr, "⚠️  --headless=new launch failed (%v); falling back to classic headless\n", err)
-	return pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless:          playwright.Bool(true),
-		Args:              base,
-		IgnoreDefaultArgs: []string{"--enable-automation"},
-	})
+	return pw.Chromium.Launch(launchOptions(true, base))
 }
 
 // ---------- Network allowlist (surgical URL filter) ----------
@@ -1334,13 +1333,13 @@ func urlAllowed(u string) bool {
 
 // ---------- Core run logic ----------
 func run(tokenCount, batchCount, parallelWorkers int, headed bool, topup bool) error {
-	// Install Playwright browsers (best-effort)
-	tuiSetStatus("Installing Playwright...")
-	fmt.Println("⏳ Ensuring Playwright Chromium browser is installed...")
-	if err := playwright.Install(&playwright.RunOptions{
-		Browsers: []string{"chromium"},
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  playwright install: %v (continuing anyway)\n", err)
+	// Production images can provide a system Chromium explicitly.
+	if os.Getenv("CHROMIUM_EXECUTABLE_PATH") == "" {
+		tuiSetStatus("Installing Playwright...")
+		fmt.Println("⏳ Ensuring Playwright Chromium browser is installed...")
+		if err := playwright.Install(&playwright.RunOptions{Browsers: []string{"chromium"}}); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  playwright install: %v (continuing anyway)\n", err)
+		}
 	}
 
 	tuiSetStatus("Launching browser...")
